@@ -1,0 +1,168 @@
+schemaVersion: 2.2.0
+metadata:
+  name: hermes-agent
+  displayName: Hermes Agent Workspace
+  description: Persistent Hermes AI Agent with Discord gateway
+  tags: ['python', 'hermes', 'ai-agent']
+  icon: https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/static/img/logo.png
+
+components:
+  - name: hermes-runtime
+    container:
+      image: registry.redhat.io/ubi9/python-311:latest
+      memoryLimit: 3Gi
+      memoryRequest: 1Gi
+      cpuLimit: 2000m
+      cpuRequest: 500m
+      env:
+        - name: HOME
+          value: /home/user
+        - name: HERMES_HOME
+          value: /home/user/.hermes
+        # Discord bot token - SET THIS via DevSpaces environment variables
+        # or replace the value below directly
+        - name: DISCORD_BOT_TOKEN
+          value: "${DISCORD_BOT_TOKEN}"
+        # OpenGateway LLM endpoint
+        - name: OPENROUTER_API_KEY
+          value: "ogw_live_95e21418d8d8af90d36206f99b16d89c"
+        # GitHub token for git push/pull - SET THIS in DevSpaces env vars
+        - name: GITHUB_TOKEN
+          value: "${GITHUB_TOKEN}"
+      endpoints:
+        - name: hermes-api
+          targetPort: 8080
+          exposure: public
+          protocol: https
+      volumeMounts:
+        - name: hermes-persistent-storage
+          path: /home/user/.hermes
+
+  - name: hermes-persistent-storage
+    volume:
+      size: 2Gi
+
+commands:
+  - id: setup-hermes
+    label: "Setup Hermes Agent"
+    exec:
+      component: hermes-runtime
+      command: |
+        cd /home/user
+        echo "=== Installing Hermes Agent ==="
+        curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+        echo "=== Hermes installed ==="
+        echo "Run 'configure-hermes' command next"
+      workingDir: /home/user
+
+  - id: configure-hermes
+    label: "Configure Hermes"
+    exec:
+      component: hermes-runtime
+      command: |
+        cd /home/user/.hermes/hermes-agent 2>/dev/null || cd /home/user
+
+        # Write config for OpenGateway custom provider
+        cat > /home/user/.hermes/config.yaml << 'HERMESCONFIG'
+        model:
+          default: "anthropic/claude-sonnet-4"
+          provider: "custom"
+          base_url: "https://opengateway.gitlawb.com/v1"
+          api_key: "ogw_live_95e21418d8d8af90d36206f99b16d89c"
+
+        terminal:
+          backend: local
+          timeout: 180
+
+        agent:
+          max_turns: 90
+
+        compression:
+          enabled: true
+          threshold: 0.50
+          target_ratio: 0.20
+
+        display:
+          skin: dark
+          tool_progress: true
+          show_cost: false
+
+        memory:
+          memory_enabled: true
+          user_profile_enabled: true
+
+        delegation:
+          max_concurrent_children: 3
+
+        gateway:
+          platforms:
+            discord:
+              enabled: true
+              token: "${DISCORD_BOT_TOKEN}"
+        HERMESCONFIG
+
+        # Write .env with secrets
+        cat > /home/user/.hermes/.env << 'ENVFILE'
+        OPENROUTER_API_KEY=ogw_live_95e21418d8d8af90d36206f99b16d89c
+        HERMES_DEFAULT_PROVIDER=custom
+        HERMES_BASE_URL=https://opengateway.gitlawb.com/v1
+        ENVFILE
+
+        # Set permissions
+        chmod 600 /home/user/.hermes/.env
+
+        echo "=== Hermes configured ==="
+        echo "Run 'start-hermes' to launch the Discord gateway"
+      workingDir: /home/user
+
+  - id: start-hermes
+    label: "Start Hermes Discord Gateway"
+    exec:
+      component: hermes-runtime
+      command: |
+        # Start tmux session with hermes gateway
+        tmux new-session -d -s hermes-gw 2>/dev/null || true
+        tmux send-keys -t hermes-gw 'cd /home/user/.hermes/hermes-agent 2>/dev/null; hermes gateway run' Enter
+        echo "=== Hermes Discord gateway started in tmux session 'hermes-gw' ==="
+        echo "=== To view: tmux attach -t hermes-gw ==="
+        echo "=== To stop: tmux kill-session -t hermes-gw ==="
+        echo ""
+        echo "Now message your Discord bot to talk to Hermes!"
+      workingDir: /home/user
+
+  - id: start-keepalive
+    label: "Start Anti-Hibernation Keepalive"
+    exec:
+      component: hermes-runtime
+      command: |
+        tmux new-session -d -s keepalive 2>/dev/null || true
+        tmux send-keys -t keepalive 'while true; do curl -s -o /dev/null -w "%{http_code}" https://console.redhat.com > /dev/null 2>&1; sleep 120; done' Enter
+        echo "=== Keepalive started (pings every 2 min to prevent hibernation) ==="
+      workingDir: /home/user
+
+  - id: hermes-status
+    label: "Check Hermes Status"
+    exec:
+      component: hermes-runtime
+      command: |
+        echo "=== Tmux sessions ==="
+        tmux list-sessions 2>/dev/null || echo "(no tmux sessions)"
+        echo ""
+        echo "=== Hermes gateway log (last 20 lines) ==="
+        tail -20 /home/user/.hermes/logs/gateway.log 2>/dev/null || echo "(no logs yet)"
+      workingDir: /home/user
+
+  - id: hermes-restart
+    label: "Restart Hermes Gateway"
+    exec:
+      component: hermes-runtime
+      command: |
+        tmux kill-session -t hermes-gw 2>/dev/null
+        tmux new-session -d -s hermes-gw 2>/dev/null
+        tmux send-keys -t hermes-gw 'cd /home/user/.hermes/hermes-agent 2>/dev/null; hermes gateway run' Enter
+        echo "=== Hermes gateway restarted ==="
+      workingDir: /home/user
+
+events:
+  postStart:
+    - start-keepalive
