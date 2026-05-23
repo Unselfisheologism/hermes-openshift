@@ -24,7 +24,7 @@ components:
         - name: DISCORD_BOT_TOKEN
           value: "${DISCORD_BOT_TOKEN}"
         # OpenGateway LLM endpoint
-        - name: OPENROUTER_API_KEY
+        - name: OPENGATEWAY_API_KEY
           value: "ogw_live_95e21418d8d8af90d36206f99b16d89c"
         # GitHub token for git push/pull - SET THIS in DevSpaces env vars
         - name: GITHUB_TOKEN
@@ -65,7 +65,7 @@ commands:
         # Write config for OpenGateway custom provider
         cat > /home/user/.hermes/config.yaml << 'HERMESCONFIG'
         model:
-          default: "anthropic/claude-sonnet-4"
+          default: "mimo-v2.5-pro"
           provider: "custom"
           base_url: "https://opengateway.gitlawb.com/v1"
           api_key: "ogw_live_95e21418d8d8af90d36206f99b16d89c"
@@ -103,7 +103,7 @@ commands:
 
         # Write .env with secrets
         cat > /home/user/.hermes/.env << 'ENVFILE'
-        OPENROUTER_API_KEY=ogw_live_95e21418d8d8af90d36206f99b16d89c
+        OPENGATEWAY_API_KEY=ogw_live_95e21418d8d8af90d36206f99b16d89c
         HERMES_DEFAULT_PROVIDER=custom
         HERMES_BASE_URL=https://opengateway.gitlawb.com/v1
         ENVFILE
